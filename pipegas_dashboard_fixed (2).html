@@ -1,0 +1,1531 @@
+<!DOCTYPE html>
+<html lang="th" data-theme="dark" data-skin="classic">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>PipeGas Real-Time Monitoring Dashboard</title>
+<!-- ===== Favicon (PipeGas Logo) ===== -->
+<link rel="icon" type="image/png" href="bc600126-ec48-428b-bf61-54468e361044.png" sizes="32x32">
+<link rel="icon" type="image/png" href="bc600126-ec48-428b-bf61-54468e361044.png" sizes="64x64">
+<link rel="shortcut icon" href="bc600126-ec48-428b-bf61-54468e361044.png" type="image/png">
+<link rel="apple-touch-icon" href="bc600126-ec48-428b-bf61-54468e361044.png">
+
+
+
+<meta name="description" content="แดชบอร์ดตรวจวัดก๊าซแบบเรียลไทม์ รองรับ Web Serial แสดงค่า Gas/Pressure/Humidity/Temperature สำหรับ 2 Nodes พร้อมบันทึก Google Sheet และสัญญาณเสียงเตือน">
+
+<!-- ===== Apply saved theme & skin ASAP (prevent flash) ===== -->
+<script>
+  (function(){
+    try{
+      const savedTheme = localStorage.getItem('pipegas-theme');  // 'light' | 'dark' (เดิม)
+      if(savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
+      const savedSkin  = localStorage.getItem('pipegas-skin');   // 'classic' | 'neon' | 'glass' | 'cyber' | 'minimal'
+      if(savedSkin) document.documentElement.setAttribute('data-skin', savedSkin);
+    }catch{}
+  })();
+</script>
+
+<style>
+  /* ====== THEME (Dark / Light via [data-theme]) — คงโครงสร้างเดิม ====== */
+  :root{
+    --scale:1; --dial:168px; --ring-w:12; --gap:22px;
+
+    /* Dark default */
+    --bg1:#0d1b22; --bg2:#102a43; --bg3:#1b3a57;
+    --ring-bg:rgba(255,255,255,.10);
+    --card:#121417; --card2:#151a21;
+    --text:#eef; --muted:#bcd;
+
+    --ok:#25d366; --warn:#f7b500; --alert:#ff3b3b;
+
+    /* Status pill palette */
+    --pill-ok:#16c79a;
+    --pill-idle:#5b7c99;
+    --pill-err:#ef4444;
+
+    /* Accents (จะถูกสกิน override) */
+    --accent-1:#14b8a6; /* cyan/teal */
+    --accent-2:#3b82f6; /* blue */
+    --accent-3:#8b5cf6; /* violet */
+
+    /* Glass intensity (สำหรับสกิน glass) */
+    --glass-bg: rgba(255,255,255,.14);
+    --glass-brd: rgba(255,255,255,.35);
+
+    /* Neon glow (สำหรับสกิน neon/cyber) */
+    --glow-1: rgba(39,224,189,.6);
+    --glow-2: rgba(136,105,255,.6);
+  }
+  /* Light overrides */
+  [data-theme="light"]{
+    --bg1:#eaf2ff; --bg2:#f7fbff; --bg3:#dfe9ff;
+    --ring-bg:rgba(0,0,0,.09);
+    --card:#ffffff; --card2:#f9fbff;
+    --text:#12263a; --muted:#335;
+  }
+
+  /* ====== SKINS (เพิ่มชั้น data-skin โดยไม่ยุ่งกับสคริปต์เดิม) ======
+     ค่าเริ่มต้นคือ "classic" (คงสไตล์เดิม)
+  */
+  [data-skin="classic"]{
+    --accent-1:#14b8a6; --accent-2:#3b82f6; --accent-3:#8b5cf6;
+    --ring-bg:rgba(255,255,255,.10);
+  }
+  [data-theme="light"][data-skin="classic"]{
+    --ring-bg:rgba(0,0,0,.09);
+  }
+
+  /* Neon: สด จัด แสงโกลว์ */
+  [data-skin="neon"]{
+    --accent-1:#00ffd1; --accent-2:#6a5cff; --accent-3:#ff3df0;
+    --ok:#00ff9d; --warn:#ffd54a; --alert:#ff4a6e;
+    --glow-1: rgba(0,255,209,.7); --glow-2: rgba(255,61,240,.6);
+  }
+
+  /* Glass: โปร่งใส เบา */
+  [data-skin="glass"]{
+    --glass-bg: rgba(255,255,255,.22);
+    --glass-brd: rgba(255,255,255,.45);
+    --accent-1:#7bd3ff; --accent-2:#89a4ff; --accent-3:#c79bff;
+  }
+
+  /* Cyber: เขียวเทอร์มินัล + ม่วง */
+  [data-skin="cyber"]{
+    --accent-1:#00e676; --accent-2:#00bcd4; --accent-3:#7c4dff;
+    --ok:#00ff95; --warn:#e5ff4d; --alert:#ff4d4d;
+    --bg1:#071414; --bg2:#0c1a1a; --bg3:#122222;
+  }
+
+  /* Minimal: สีเรียบ เงาเบา */
+  [data-skin="minimal"]{
+    --accent-1:#6ca6ff; --accent-2:#9cc2ff; --accent-3:#cfe0ff;
+    --bg1:#0f151a; --bg2:#111a22; --bg3:#13202a;
+    --ring-bg:rgba(255,255,255,.06);
+  }
+  [data-theme="light"][data-skin="minimal"]{
+    --ring-bg:rgba(0,0,0,.06);
+  }
+
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; color:var(--text);
+    font-family:Inter,system-ui,"Segoe UI",Arial,sans-serif;
+    background:
+      radial-gradient(1200px 800px at 5% 5%, #12365355 0%, transparent 60%),
+      radial-gradient(1000px 700px at 95% 10%, #2f1f5e44 0%, transparent 60%),
+      linear-gradient(135deg,var(--bg1),var(--bg2),var(--bg3));
+  }
+
+  /* ====== HEADER ====== */
+  header{
+    position:sticky; top:0; z-index:5;
+    padding:14px 18px;
+    backdrop-filter: blur(10px) saturate(1.2);
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.08)),
+      linear-gradient(90deg,var(--accent-1),var(--accent-2),var(--accent-3));
+    border-bottom:1px solid #ffffff33;
+    box-shadow: inset 0 1px 0 rgba(0,0,0,.08), 0 10px 26px rgba(0,0,0,.25);
+    display:flex; align-items:center; justify-content:space-between; gap:14px
+  }
+  .brand{display:flex; align-items:center; gap:12px; font-weight:900; letter-spacing:.2px}
+  .brand img{height:46px; width:auto; display:block; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,.35)}
+  .brand-title{font-size:22px; text-shadow:0 1px 0 rgba(0,0,0,.25), 0 4px 14px rgba(16,49,98,.6)}
+
+  /* ====== CONTROLS ====== */
+  .controls{
+    display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+    background:linear-gradient(180deg,rgba(255,255,255,.18),rgba(255,255,255,.1));
+    border:1px solid rgba(255,255,255,.35);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.35), 0 10px 24px rgba(0,0,0,.25);
+    border-radius:18px; padding:10px 12px;
+  }
+  .pill{
+    padding:8px 14px; border-radius:999px;
+    background:linear-gradient(180deg,rgba(255,255,255,.25),rgba(255,255,255,.10));
+    border:1px solid rgba(255,255,255,.45);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.6);
+    color:#0b0b0b; font-weight:800; letter-spacing:.2px;
+  }
+  [data-theme="dark"] .pill{ color:#e9f4ff; }
+
+  /* ===== Theme/skin picker button & dropdown ===== */
+  .skin-wrap{position:relative}
+  .skin-btn{
+    --bg:linear-gradient(135deg,#5db5ff,#2a7be6);
+    padding:8px 12px; font-size:13px; font-weight:900; cursor:pointer; border:none;
+    border-radius:14px; color:#fff; background:var(--bg);
+    box-shadow:0 12px 22px rgba(0,0,0,.3), 0 0 0 1px rgba(255,255,255,.28) inset, 0 1px 0 rgba(255,255,255,.45) inset;
+    display:inline-flex; align-items:center; gap:8px;
+  }
+  .skin-menu{
+    position:absolute; top:110%; right:0; min-width:240px; padding:10px;
+    border-radius:14px; border:1px solid rgba(255,255,255,.35);
+    background:linear-gradient(180deg,rgba(0,0,0,.35),rgba(0,0,0,.25));
+    box-shadow:0 18px 40px rgba(0,0,0,.35);
+    display:none; z-index:10;
+  }
+  [data-theme="light"] .skin-menu{
+    background:linear-gradient(180deg,rgba(255,255,255,.95),rgba(255,255,255,.85));
+    border-color:#d9e7ff;
+  }
+  .skin-menu.show{display:block}
+  .skin-grid{
+    display:grid; grid-template-columns:1fr 1fr; gap:10px;
+  }
+  .skin-item{
+    display:flex; align-items:center; gap:10px; padding:8px; border-radius:10px;
+    border:1px dashed rgba(255,255,255,.35); cursor:pointer;
+    background:linear-gradient(180deg,rgba(255,255,255,.08),rgba(255,255,255,.02));
+  }
+  [data-theme="light"] .skin-item{ border-color:#cfe0ff; }
+  .skin-item:hover{ filter:brightness(1.05); }
+  .swatch{
+    width:38px; height:28px; border-radius:6px; border:1px solid rgba(255,255,255,.45); overflow:hidden; display:grid; grid-template-columns:1fr 1fr 1fr;
+  }
+  [data-theme="light"] .swatch{ border-color:#cfe0ff; }
+  .sw-1,.sw-2,.sw-3{height:100%}
+  .skin-label{font-size:12px; font-weight:800}
+
+  /* ===== Status pills ===== */
+  .pill.idle{
+    background:linear-gradient(180deg, rgba(91,124,153,.35), rgba(91,124,153,.15));
+    border-color:rgba(91,124,153,.55);
+    color:#fff;
+  }
+  .pill.ok{
+    color:#fff;
+    background:
+      linear-gradient(120deg, rgba(22,199,154,.35), rgba(22,199,154,.18)),
+      linear-gradient(90deg, var(--accent-1), var(--accent-2), var(--accent-1));
+    background-size:200% 100%;
+    border-color:rgba(22,199,154,.6);
+    animation:glowGreen 1.7s ease-in-out infinite alternate, sheen 2.8s linear infinite;
+  }
+  .pill.err{
+    color:#fff;
+    background:
+      linear-gradient(120deg, rgba(239,68,68,.40), rgba(239,68,68,.18)),
+      linear-gradient(90deg, #ef4444, #f97316, #ef4444);
+    background-size:220% 100%;
+    border-color:rgba(239,68,68,.6);
+    animation:glowRed 1.5s ease-in-out infinite alternate, sheen 2.6s linear infinite;
+  }
+
+  @keyframes glowGreen{from{box-shadow:0 0 0px rgba(22,199,154,.0), 0 0 0 inset} to{box-shadow:0 0 18px rgba(22,199,154,.55)}}
+  @keyframes glowRed{from{box-shadow:0 0 0px rgba(239,68,68,.0), 0 0 0 inset} to{box-shadow:0 0 18px rgba(239,68,68,.55)}}
+  @keyframes sheen {0%{background-position:-120% 0} 100%{background-position:220% 0}}
+
+  .pill.demo{ display:flex; align-items:center; gap:10px; padding:8px 12px; }
+  .pill.demo input[type="checkbox"]{
+    appearance:none; width:42px; height:24px; border-radius:999px; position:relative;
+    background:rgba(255,255,255,.4); border:1px solid rgba(255,255,255,.6);
+    outline:none; cursor:pointer; transition:background .15s ease, box-shadow .2s ease;
+    box-shadow: inset 0 2px 6px rgba(0,0,0,.25);
+  }
+  .pill.demo input[type="checkbox"]::after{
+    content:""; position:absolute; top:2px; left:2px; width:20px; height:20px; border-radius:50%;
+    background:linear-gradient(180deg,#fff,#dfe7ff);
+    box-shadow:0 1px 3px rgba(0,0,0,.35);
+    transition:left .15s ease, transform .15s ease;
+  }
+  .pill.demo input[type="checkbox"]:checked{ background:#27e0bd; box-shadow: 0 0 0 6px rgba(39,224,189,.18) inset; }
+  .pill.demo input[type="checkbox"]:checked::after{ left:20px; transform:rotate(180deg); }
+
+  .btn{
+    --bg:linear-gradient(135deg,#5db5ff,#2a7be6);
+    --ring:rgba(46,140,255,.55);
+    padding:10px 16px; font-size:13px; font-weight:900; cursor:pointer;
+    border:none; border-radius:14px; color:#fff; text-decoration:none;
+    background:var(--bg);
+    box-shadow:0 18px 32px rgba(0,0,0,.35), 0 0 0 1px rgba(255,255,255,.28) inset, 0 1px 0 rgba(255,255,255,.45) inset;
+    display:inline-flex; align-items:center; gap:8px;
+    transition:transform .08s ease, box-shadow .2s ease, filter .15s ease;
+    white-space:nowrap;
+  }
+  .btn:hover{ filter:saturate(1.15) brightness(1.05); box-shadow:0 22px 38px rgba(0,0,0,.40), 0 0 0 1px rgba(255,255,255,.28) inset, 0 1px 0 rgba(255,255,255,.45) inset;}
+  .btn:active{ transform:translateY(1px) scale(.99); }
+  .btn:focus-visible{ outline:2px solid var(--ring); outline-offset:2px; }
+  #btnSerial.btn{ --bg:linear-gradient(135deg,#3ddc97,#11998e); --ring:rgba(61,220,151,.55); }
+  #btnClear.btn{ --bg:linear-gradient(135deg,#ff9966,#ff5e62); --ring:rgba(255,101,80,.6); }
+  #btnSheet.btn{ --bg:linear-gradient(135deg,#8b5cf6,#6366f1); --ring:rgba(136,105,255,.65); }
+  #btnMute.btn{ --bg:linear-gradient(135deg,#64748b,#1f2937); --ring:rgba(100,116,139,.6); }
+
+  .vol-wrap{
+    display:flex; align-items:center; gap:8px; padding:6px 10px; border-radius:999px;
+    background:linear-gradient(180deg,rgba(255,255,255,.25),rgba(255,255,255,.10));
+    border:1px solid rgba(255,255,255,.45);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.6);
+  }
+  .vol-wrap input[type="range"]{ width:120px }
+
+  /* ===== Pretty theme switch (☀️ / 🌙) ===== */
+  .theme-toggle{
+    --h:36px; --w:78px; --pad:4px;
+    position:relative; display:inline-flex; align-items:center; justify-content:center;
+  }
+  .theme-toggle input{ display:none; }
+  .theme-toggle .track{
+    width:var(--w); height:var(--h); border-radius:999px; position:relative; padding:var(--pad);
+    display:inline-flex; align-items:center; justify-content:space-between; gap:8px;
+    background:#0f2430; border:2px solid #0e1a24; box-shadow: inset 0 2px 6px rgba(0,0,0,.35), 0 6px 14px rgba(0,0,0,.25);
+    cursor:pointer; user-select:none;
+  }
+  [data-theme="light"] .theme-toggle .track{
+    background:#e9f3ff; border-color:#cfe4ff; box-shadow: inset 0 2px 6px rgba(0,0,0,.06), 0 6px 14px rgba(0,0,0,.08);
+  }
+  .theme-toggle .sun,.theme-toggle .moon{ font-size:16px; line-height:1; }
+  .theme-toggle .thumb{
+    --sz:28px;
+    position:absolute; top:50%; left:4px; width:var(--sz); height:var(--sz); border-radius:50%;
+    transform:translate(0,-50%); transition:left .18s ease;
+    background:#fff; box-shadow:0 3px 8px rgba(0,0,0,.35);
+  }
+  [data-theme="dark"]  .theme-toggle .thumb{ left:4px; }
+  [data-theme="light"] .theme-toggle .thumb{ left:calc(100% - var(--sz) - 4px); }
+
+  /* ===== CLOCK ===== */
+  .clock{
+    font-weight:900; letter-spacing:.2px;
+    padding:8px 14px; border-radius:999px;
+    border:1px solid rgba(255,255,255,.45);
+    background:
+      linear-gradient(180deg,rgba(255,255,255,.25),rgba(255,255,255,.10)),
+      linear-gradient(90deg,#00E1FF,#7C3AED,#22D3EE);
+    background-size:200% 100%;
+    animation:sheen 6s linear infinite;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.6);
+    color:#fff;
+  }
+  [data-theme="light"] .clock{ color:#0b0b0b }
+
+  /* ====== LAYOUT ====== */
+  .scaler{transform:scale(var(--scale)); transform-origin:top center}
+  .board{max-width:1480px; margin:18px auto 22px; padding:0 14px; display:grid; gap:26px; grid-template-columns:1fr 1fr;}
+  .node[data-node="1"]{--node-grad:linear-gradient(135deg,#22d3ee,#7c3aed);} /* cyan → purple */
+  .node[data-node="2"]{--node-grad:linear-gradient(135deg,#fb7185,#f59e0b);} /* rose → amber */
+
+  /* Glass effect for node frame (active in glass skin) */
+  [data-skin="glass"] .node-frame{
+    backdrop-filter: blur(10px) saturate(1.2);
+    background: var(--glass-bg);
+    border:1px solid var(--glass-brd);
+  }
+
+  .node-frame{
+    position:relative; padding:16px; border-radius:22px;
+    background:linear-gradient(180deg, var(--card), #0f1218);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 18px 40px rgba(0,0,0,.35);
+  }
+  [data-theme="light"] .node-frame{
+    background:linear-gradient(180deg, var(--card), var(--card2));
+    box-shadow: inset 0 1px 0 rgba(0,0,0,.02), 0 18px 36px rgba(0,0,0,.08);
+  }
+  .node-bar{
+    display:flex; align-items:center; gap:10px; font-weight:900; color:#fff; padding:10px 16px;
+    border-radius:16px; background:var(--node-grad); margin-bottom:14px;
+    box-shadow: 0 12px 24px rgba(0,0,0,.35), 0 0 0 1px rgba(255,255,255,.15) inset;
+    text-shadow: 0 1px 0 rgba(0,0,0,.35);
+  }
+  .grid2x2{display:grid; gap:var(--gap); grid-template-columns:1fr 1fr}
+
+  /* ====== CARD / DIAL ====== */
+  .card{
+    border-radius:20px; padding:14px;
+    background: radial-gradient(120% 120% at 20% 0%, #1a2330, #0f1218);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 14px 28px rgba(0,0,0,.3);
+    display:flex; flex-direction:column; gap:10px
+  }
+  [data-theme="light"] .card{
+    background: radial-gradient(120% 120% at 20% 0%, #ffffff, #f3f7ff);
+    box-shadow: inset 0 1px 0 rgba(0,0,0,.04), 0 10px 22px rgba(0,0,0,.08);
+  }
+  [data-skin="minimal"] .card{
+    background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+    box-shadow: 0 10px 18px rgba(0,0,0,.22);
+  }
+  .title{font-weight:800; font-size:15px; opacity:.92; letter-spacing:.2px}
+
+  .dial{
+    width:var(--dial); height:var(--dial); margin:2px auto 0; position:relative; display:grid; place-items:center;
+    filter: drop-shadow(0 10px 22px rgba(0,0,0,.25));
+    border-radius:50%;
+  }
+  .dial::before{
+    content:""; position:absolute; inset:-8px; border-radius:50%;
+    background:conic-gradient(from 0deg, var(--accent-1), var(--accent-2), var(--accent-3), var(--accent-1));
+    filter:blur(12px) saturate(1.2);
+    opacity:.20; animation:spin 8s linear infinite;
+    z-index:0;
+  }
+  /* Neon/Cyber extra glow on ring */
+  [data-skin="neon"] .prog, [data-skin="cyber"] .prog{
+    filter: drop-shadow(0 0 18px var(--glow-1));
+  }
+
+  .badge{position:absolute; top:6px; right:6px; background:var(--alert); color:#fff; font-weight:800; font-size:10px; padding:3px 7px; border-radius:999px; display:none; z-index:2}
+  .dial svg{width:100%; height:100%; transform:rotate(-90deg); z-index:1}
+  .trk{stroke:var(--ring-bg); stroke-width:var(--ring-w)}
+  .prog{
+    stroke:#27e0bd; stroke-width:var(--ring-w); stroke-linecap:round;
+    transition:stroke-dashoffset .2s ease, stroke .15s, filter .2s;
+    filter: drop-shadow(0 0 12px rgba(39,224,189,.5));
+    animation:glowLine 2s ease-in-out infinite alternate;
+  }
+  @keyframes glowLine {from{filter:drop-shadow(0 0 6px rgba(255,255,255,.25))} to{filter:drop-shadow(0 0 14px rgba(255,255,255,.65))}}
+  .prog.glow{ filter: drop-shadow(0 0 14px rgba(39,224,189,.75)); }
+
+  .dots{
+    stroke:#27e0bd;
+    stroke-width:calc(var(--ring-w) - 4);
+    stroke-linecap:round;
+    stroke-dasharray:3 9;
+    opacity:.95;
+    transform-origin:100px 100px;
+    animation:spin 6s linear infinite;
+    filter: drop-shadow(0 0 2px rgba(0,0,0,.2));
+  }
+  [data-theme="light"] .dots{
+    stroke-width:calc(var(--ring-w) - 2);
+    stroke-dasharray:4 8;
+    filter: drop-shadow(0 0 6px rgba(0,0,0,.15));
+  }
+  @keyframes spin{from{transform:rotate(0deg)} to{transform:rotate(360deg)}}
+
+  .val{font-variant-numeric:tabular-nums; font-weight:900; font-size:42px; position:relative; z-index:3}
+  [data-theme="light"] .val{
+    color:#ffffff;
+    text-shadow:0 1px 0 rgba(0,0,0,.15), 0 0 8px rgba(0,0,0,.25);
+  }
+  .unit{font-size:11px; padding:2px 8px; border-radius:999px; background:rgba(255,255,255,.08); margin-top:-4px; border:1px solid rgba(255,255,255,.14); position:relative; z-index:3}
+  [data-theme="light"] .unit{
+    color:#ffffff; background:rgba(0,0,0,.32); border-color:rgba(0,0,0,.22);
+  }
+
+  .meta{font-size:12px; opacity:.8; text-align:center}
+  .spark{width:100%; height:70px; display:block; border-radius:12px; background:#ffffff10; border:1px solid #ffffff18; box-shadow: inset 0 6px 14px rgba(0,0,0,.2);}
+  [data-theme="light"] .spark{ background:#00000008; border-color:#00000014; }
+  .axisNote{font-size:11px; color:var(--muted); opacity:.9; text-align:center}
+  .legend{max-width:1480px; margin:0 auto 6px; color:#cde; font-size:12px; opacity:.85}
+  [data-theme="light"] .legend{ color:#335; opacity:.9}
+  .dot{display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px}
+  .g{background:var(--ok)} .y{background:var(--warn)} .r{background:var(--alert)}
+  .log{max-width:1480px; margin:0 auto 12px; padding:8px 12px; background:#0b2430; border-left:4px solid #42a5f5; border-radius:10px; font:12px/1.5 ui-monospace,Consolas,monospace; height:110px; overflow:auto; opacity:.9}
+  [data-theme="light"] .log{ background:#edf6ff; border-left-color:#6ea8fe; color:#0b2b4a}
+  @media(max-width:980px){.board{grid-template-columns:1fr}}
+
+  /* ===== ป้ายเตือน FAB ===== */
+  .warning-fab{
+    position:fixed; left:18px; bottom:18px; z-index:30;
+    height:70px; border-radius:16px;
+    background:rgba(13,13,13,.9); padding:10px;
+    box-shadow:0 16px 36px rgba(0,0,0,.55), 0 0 0 2px #ffffff22 inset;
+    display:flex; align-items:center; gap:12px;
+    opacity:0; transform:translateY(8px) scale(.94); pointer-events:none;
+    transition:opacity .25s ease, transform .25s ease;
+  }
+  .warning-fab.show{opacity:1; transform:translateY(0) scale(1); animation:pulseZoom 1.2s ease-in-out infinite;}
+  @keyframes pulseZoom{0%{transform:translateY(0) scale(0.98)}50%{transform:translateY(0) scale(1.02)}100%{transform:translateY(0) scale(0.98)}}
+  .warning-fab svg{display:block; width:46px; height:46px}
+  .warning-fab.warn  .tri{fill:var(--warn)}
+  .warning-fab.alert .tri{fill:var(--alert)}
+  .warning-fab .tri{stroke:#000; stroke-width:4}
+  .warning-fab .mark,.warning-fab .dot{fill:#111}
+  .warning-fab .warn-text{
+    display:inline-flex; align-items:center; gap:14px;
+    background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.03));
+    color:#fff; padding:10px 14px; border-radius:12px;
+    font:12px/1.3 ui-monospace,Consolas,monospace; border:1px solid #ff5f5f66;
+    box-shadow:0 10px 24px rgba(0,0,0,.55);
+    white-space:nowrap;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <img src="Pipegas.png" alt="PIPE GAS Logo">
+    <div class="brand-title">PipeGas Real-Time Monitoring Dashboard</div>
+  </div>
+
+  <div class="controls">
+    <!-- Pretty theme toggle (เดิม) -->
+    <label class="theme-toggle" title="สลับโหมดสว่าง/มืด">
+      <input type="checkbox" id="themeToggle" aria-label="Theme Toggle" />
+      <span class="track">
+        <span class="sun">☀️</span>
+        <span class="moon">🌙</span>
+        <span class="thumb" aria-hidden="true"></span>
+      </span>
+    </label>
+
+    <!-- NEW: Skin picker (5 โหมด) -->
+    <div class="skin-wrap">
+      <button class="skin-btn" id="skinBtn" aria-haspopup="true" aria-expanded="false">🎨 UI โหมด</button>
+      <div class="skin-menu" id="skinMenu" role="menu" aria-label="เลือกสกิน UI">
+        <div class="skin-grid">
+          <div class="skin-item" data-skin="classic" role="menuitem">
+            <div class="swatch">
+              <div class="sw-1" style="background:#14b8a6"></div>
+              <div class="sw-2" style="background:#3b82f6"></div>
+              <div class="sw-3" style="background:#8b5cf6"></div>
+            </div>
+            <span class="skin-label">Classic</span>
+          </div>
+          <div class="skin-item" data-skin="neon" role="menuitem">
+            <div class="swatch">
+              <div class="sw-1" style="background:#00ffd1"></div>
+              <div class="sw-2" style="background:#6a5cff"></div>
+              <div class="sw-3" style="background:#ff3df0"></div>
+            </div>
+            <span class="skin-label">Neon</span>
+          </div>
+          <div class="skin-item" data-skin="glass" role="menuitem">
+            <div class="swatch">
+              <div class="sw-1" style="background:rgba(255,255,255,.65)"></div>
+              <div class="sw-2" style="background:rgba(255,255,255,.35)"></div>
+              <div class="sw-3" style="background:rgba(200,220,255,.55)"></div>
+            </div>
+            <span class="skin-label">Glass</span>
+          </div>
+          <div class="skin-item" data-skin="cyber" role="menuitem">
+            <div class="swatch">
+              <div class="sw-1" style="background:#00e676"></div>
+              <div class="sw-2" style="background:#00bcd4"></div>
+              <div class="sw-3" style="background:#7c4dff"></div>
+            </div>
+            <span class="skin-label">Cyber</span>
+          </div>
+          <div class="skin-item" data-skin="minimal" role="menuitem">
+            <div class="swatch">
+              <div class="sw-1" style="background:#6ca6ff"></div>
+              <div class="sw-2" style="background:#9cc2ff"></div>
+              <div class="sw-3" style="background:#cfe0ff"></div>
+            </div>
+            <span class="skin-label">Minimal</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <span id="status" class="pill idle">ยังไม่เชื่อมต่อ</span>
+    <span id="sheetStat" class="pill">Sheet: idle</span>
+
+    <label class="pill demo" style="cursor:pointer">
+      <input id="demo" type="checkbox" aria-label="Demo Mode" />
+      <span>โหมดสาธิต</span>
+    </label>
+
+    <button class="btn" id="btnSerial">🔌 เชื่อมต่อ Serial</button>
+    <button class="btn" id="btnClear">🧹 ล้างค่า</button>
+    <a id="btnSheet" class="btn" href="#" target="_blank" rel="noopener">📊 เปิด Google Sheet</a>
+
+    <!-- ปุ่มเสียง -->
+    <button class="btn" id="btnMute" aria-pressed="false" title="ปิด/เปิดเสียง">🔊 เสียง: เปิด</button>
+    <label class="vol-wrap" title="ปรับระดับเสียง">
+      <span>🔈</span>
+      <input id="volRange" type="range" min="0" max="1" step="0.05" value="1" aria-label="ระดับเสียง" />
+    </label>
+
+    <!-- นาฬิกา/วันที่ -->
+    <span id="clock" class="clock">🕒 --:--:-- | -- -- ----</span>
+  </div>
+</header>
+
+<!-- ป้ายเตือน (SVG) -->
+<div id="warningFab" class="warning-fab" aria-hidden="true" role="img" aria-label="Warning">
+  <svg viewBox="0 0 64 64" aria-hidden="true">
+    <path class="tri" d="M32 4 L4 60 H60 Z"></path>
+    <rect class="mark" x="29" y="22" width="6" height="20" rx="3"></rect>
+    <circle class="dot" cx="32" cy="50" r="3.5"></circle>
+  </svg>
+  <div class="warn-text" id="warnText" aria-live="polite" aria-atomic="true" style="display:none">—</div>
+</div>
+
+<div class="legend">
+  <span class="dot g"></span>ปลอดภัย (Gas &lt; 200) &nbsp;&nbsp;
+  <span class="dot y"></span>ระวัง (200–399) &nbsp;&nbsp;
+  <span class="dot r"></span>เตือน (≥ 400)
+</div>
+
+<div class="scaler">
+  <main class="board">
+    <!-- Node 1 -->
+    <section class="node" data-node="1">
+      <div class="node-bar">🔷 NODE 1</div>
+      <div class="node-frame">
+        <div class="grid2x2">
+          <!-- Gas -->
+          <div class="card">
+            <div class="title">Gas (0–800)</div>
+            <div class="dial">
+              <div id="n1_gasBadge" class="badge">ALERT</div>
+              <svg viewBox="0 0 200 200" aria-label="N1 Gas">
+                <circle class="trk" cx="100" cy="100" r="76"/>
+                <circle id="n1_gasDots" class="dots" cx="100" cy="100" r="76"/>
+                <circle id="n1_gasProg" class="prog" cx="100" cy="100" r="70" stroke-dasharray="439.82" stroke-dashoffset="439.82"/>
+              </svg>
+              <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
+                <div id="n1_gasVal" class="val">NC</div><div class="unit">ppm</div>
+              </div>
+            </div>
+            <canvas id="n1_gasSpark" class="spark"></canvas>
+            <div id="n1_gasNote" class="axisNote">GAS (ppm) — 0 จุดล่าสุด</div>
+            <div id="n1_gasTime" class="meta">อัปเดต: —</div>
+          </div>
+          <!-- Pressure -->
+          <div class="card">
+            <div class="title">Pressure</div>
+            <div class="dial">
+              <svg viewBox="0 0 200 200" aria-label="N1 Pressure">
+                <circle class="trk" cx="100" cy="100" r="76"/>
+                <circle id="n1_pressureDots" class="dots" cx="100" cy="100" r="76"/>
+                <circle id="n1_pressureProg" class="prog" cx="100" cy="100" r="70" stroke-dasharray="439.82" stroke-dashoffset="439.82"/>
+              </svg>
+              <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
+                <div id="n1_pressureVal" class="val">NC</div><div class="unit">%</div>
+              </div>
+            </div>
+            <canvas id="n1_pressureSpark" class="spark"></canvas>
+            <div id="n1_pressureNote" class="axisNote">PRESSURE (%) — 0 จุดล่าสุด</div>
+            <div id="n1_pressureTime" class="meta">อัปเดต: —</div>
+          </div>
+          <!-- Humidity -->
+          <div class="card">
+            <div class="title">Humidity</div>
+            <div class="dial">
+              <svg viewBox="0 0 200 200" aria-label="N1 Humidity">
+                <circle class="trk" cx="100" cy="100" r="76"/>
+                <circle id="n1_humDots" class="dots" cx="100" cy="100" r="76"/>
+                <circle id="n1_humProg" class="prog" cx="100" cy="100" r="70" stroke-dasharray="439.82" stroke-dashoffset="439.82"/>
+              </svg>
+              <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
+                <div id="n1_humVal" class="val">NC</div><div class="unit">%</div>
+              </div>
+            </div>
+            <canvas id="n1_humSpark" class="spark"></canvas>
+            <div id="n1_humNote" class="axisNote">HUMIDITY (%) — 0 จุดล่าสุด</div>
+            <div id="n1_humTime" class="meta">อัปเดต: —</div>
+          </div>
+          <!-- Temperature -->
+          <div class="card">
+            <div class="title">Temperature</div>
+            <div class="dial">
+              <svg viewBox="0 0 200 200" aria-label="N1 Temperature">
+                <circle class="trk" cx="100" cy="100" r="76"/>
+                <circle id="n1_tempDots" class="dots" cx="100" cy="100" r="76"/>
+                <circle id="n1_tempProg" class="prog" cx="100" cy="100" r="70" stroke-dasharray="439.82" stroke-dashoffset="439.82"/>
+              </svg>
+              <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
+                <div id="n1_tempVal" class="val">NC</div><div class="unit">°C</div>
+              </div>
+            </div>
+            <canvas id="n1_tempSpark" class="spark"></canvas>
+            <div id="n1_tempNote" class="axisNote">TEMPERATURE (°C) — 0 จุดล่าสุด</div>
+            <div id="n1_tempTime" class="meta">อัปเดต: —</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Node 2 -->
+    <section class="node" data-node="2">
+      <div class="node-bar">🔶 NODE 2 (Gateway)</div>
+      <div class="node-frame">
+        <div class="grid2x2">
+          <!-- Gas -->
+          <div class="card">
+            <div class="title">Gas (0–800)</div>
+            <div class="dial">
+              <div id="n2_gasBadge" class="badge">ALERT</div>
+              <svg viewBox="0 0 200 200" aria-label="N2 Gas">
+                <circle class="trk" cx="100" cy="100" r="76"/>
+                <circle id="n2_gasDots" class="dots" cx="100" cy="100" r="76"/>
+                <circle id="n2_gasProg" class="prog" cx="100" cy="100" r="70" stroke-dasharray="439.82" stroke-dashoffset="439.82"/>
+              </svg>
+              <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
+                <div id="n2_gasVal" class="val">NC</div><div class="unit">ppm</div>
+              </div>
+            </div>
+            <canvas id="n2_gasSpark" class="spark"></canvas>
+            <div id="n2_gasNote" class="axisNote">GAS (ppm) — 0 จุดล่าสุด</div>
+            <div id="n2_gasTime" class="meta">อัปเดต: —</div>
+          </div>
+          <!-- Pressure -->
+          <div class="card">
+            <div class="title">Pressure</div>
+            <div class="dial">
+              <svg viewBox="0 0 200 200" aria-label="N2 Pressure">
+                <circle class="trk" cx="100" cy="100" r="76"/>
+                <circle id="n2_pressureDots" class="dots" cx="100" cy="100" r="76"/>
+                <circle id="n2_pressureProg" class="prog" cx="100" cy="100" r="70" stroke-dasharray="439.82" stroke-dashoffset="439.82"/>
+              </svg>
+              <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
+                <div id="n2_pressureVal" class="val">NC</div><div class="unit">%</div>
+              </div>
+            </div>
+            <canvas id="n2_pressureSpark" class="spark"></canvas>
+            <div id="n2_pressureNote" class="axisNote">PRESSURE (%) — 0 จุดล่าสุด</div>
+            <div id="n2_pressureTime" class="meta">อัปเดต: —</div>
+          </div>
+          <!-- Humidity -->
+          <div class="card">
+            <div class="title">Humidity</div>
+            <div class="dial">
+              <svg viewBox="0 0 200 200" aria-label="N2 Humidity">
+                <circle class="trk" cx="100" cy="100" r="76"/>
+                <circle id="n2_humDots" class="dots" cx="100" cy="100" r="76"/>
+                <circle id="n2_humProg" class="prog" cx="100" cy="100" r="70" stroke-dasharray="439.82" stroke-dashoffset="439.82"/>
+              </svg>
+              <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
+                <div id="n2_humVal" class="val">NC</div><div class="unit">%</div>
+              </div>
+            </div>
+            <canvas id="n2_humSpark" class="spark"></canvas>
+            <div id="n2_humNote" class="axisNote">HUMIDITY (%) — 0 จุดล่าสุด</div>
+            <div id="n2_humTime" class="meta">อัปเดต: —</div>
+          </div>
+          <!-- Temperature -->
+          <div class="card">
+            <div class="title">Temperature</div>
+            <div class="dial">
+              <svg viewBox="0 0 200 200" aria-label="N2 Temperature">
+                <circle class="trk" cx="100" cy="100" r="76"/>
+                <circle id="n2_tempDots" class="dots" cx="100" cy="100" r="76"/>
+                <circle id="n2_tempProg" class="prog" cx="100" cy="100" r="70" stroke-dasharray="439.82" stroke-dashoffset="439.82"/>
+              </svg>
+              <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
+                <div id="n2_tempVal" class="val">NC</div><div class="unit">°C</div>
+              </div>
+            </div>
+            <canvas id="n2_tempSpark" class="spark"></canvas>
+            <div id="n2_tempNote" class="axisNote">TEMPERATURE (°C) — 0 จุดล่าสุด</div>
+            <div id="n2_tempTime" class="meta">อัปเดต: —</div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- Raw Log -->
+<div style="max-width:1480px;margin:0 auto 12px;padding:0 14px">
+  <details>
+    <summary style="cursor:pointer">Raw Monitor</summary>
+    <div id="log" class="log"></div>
+  </details>
+</div>
+
+<!-- เสียงแจ้งเตือน (เก็บไว้แต่ไม่ได้ใช้แล้ว) -->
+<audio id="beep" preload="auto" style="display:none">
+  <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABAAZGF0YRAAAAAA//8AAP//AAD//wAA" type="audio/wav">
+</audio>
+
+<!-- ===== Theme toggle JS (เดิม: ไม่แตะสคริปต์หลัก) ===== -->
+<script>
+  (function(){
+    const box = document.getElementById('themeToggle');
+    if(!box) return;
+    function apply(state){
+      const theme = state ? 'light' : 'dark';      // checked = light
+      document.documentElement.setAttribute('data-theme', theme);
+      try{ localStorage.setItem('pipegas-theme', theme); }catch{}
+    }
+    box.checked = document.documentElement.getAttribute('data-theme') === 'light';
+    box.addEventListener('change', e=> apply(e.target.checked));
+  })();
+</script>
+
+<!-- ===== ปรับข้อความสถานะ & สี (เดิม) ===== -->
+<script>
+  (function(){
+    const status = document.getElementById('status');
+    if(!status) return;
+    const set = (cls) => {
+      status.classList.remove('ok','idle','err');
+      status.classList.add(cls);
+    };
+    const refresh = () => {
+      let t = (status.textContent || '').trim();
+      if (t.startsWith('เชื่อมต่อไม่สำเร็จ')) {
+        t = 'เชื่อมต่อไม่สำเร็จ';
+        if (status.textContent !== t) status.textContent = t;
+        set('err'); return;
+      }
+      if (t.startsWith('เชื่อมต่อแล้ว')) { set('ok'); return; }
+      if (t.startsWith('ตัดการเชื่อมต่อแล้ว')) { set('idle'); return; }
+      if (t === 'ยังไม่เชื่อมต่อ' || !t) { set('idle'); return; }
+    };
+    refresh();
+    new MutationObserver(refresh).observe(status, {childList:true,subtree:true,characterData:true});
+  })();
+</script>
+
+<!-- ===== นาฬิกา + วันที่ (เดิม) ===== -->
+<script>
+  (function(){
+    const el = document.getElementById('clock');
+    if(!el) return;
+    const months = ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
+    const pad = n => String(n).padStart(2,'0');
+    const tick = () => {
+      const d = new Date();
+      const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+      const date = `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()+543}`;
+      el.textContent = `🕒 ${time} | ${date}`;
+    };
+    tick(); setInterval(tick, 1000);
+  })();
+</script>
+
+<!-- ====== สคริปต์หลักเดิม + ระบบเสียงใหม่ (Web Audio) ====== -->
+<script>
+// === Google Sheet URLs ===
+const APP_SCRIPT_URL_1MIN = "https://script.google.com/macros/s/AKfycbxA_6TzPUkwBpC9KiWRKKBfYhU5extbB_cJa_AxsMr7P-UvL_L6y1rC-cn8TMb2i61GzQ/exec"; // เดิม (ทุก 1 นาที)
+const APP_SCRIPT_URL_1SEC = "https://script.google.com/macros/s/AKfycbw7UVgjMCpG7INDYu43SI-Wp2WN-m_c1W8_o519dXk4KKif3xBKRnctqiiP0sUfmSev/exec"; // ✅ ของใหม่ (ทุก 1 วินาที)
+
+/* ===== LINE Messaging API: Direct Push ===== */
+const LINE_API_URL = "https://api.line.me/v2/bot/message/push";
+const LINE_TOKEN   = "FcC6nTDY9w+MteHsIvRulQQC5cgdpCzUsiYjIJTXtUzBLiMvU87h4Ed/xJBnIQqTaUBfS7fvViP8LR7/+qOKnNgUmXsGWaajEP6PSaN/e8gt7vpXzpUiph52JmQWe2nAKthqp03aDY2nF8crPJ+j9gdB04t89/1O/w1cDnyilFU=";
+const USER_ID      = "C7903da79fabd8a09e1ceaae90d8a5dc6";
+
+// === ส่งข้อมูลไป Apps Script (ไม่ส่งตรงเข้า LINE แล้ว) ===
+async function sendLineAlert(data) {
+  try {
+    await fetch("https://script.google.com/macros/s/AKfycbzt7aFJT7p3isufyFUAopOgYrlcECzmtEH9enEVoJYwf4_Lrzl7Ykzn19-YK9wWPPq3/exec", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data)
+    });
+    console.log("✅ ส่งข้อมูลไป LINE Apps Script สำเร็จ");
+  } catch (err) {
+    console.error("❌ ส่งข้อมูลไป LINE ล้มเหลว:", err);
+  }
+}
+
+
+const SHEET_URL = "https://docs.google.com/spreadsheets/d/1_n6bNJJEGC2NN9XJNGiFAnXslX7UzKri1lzFri5SMAE/edit#gid=0";
+document.getElementById('btnSheet').href = SHEET_URL;
+
+const statusEl  = document.getElementById("status");
+const btnSerial = document.getElementById("btnSerial");
+const btnClear  = document.getElementById("btnClear");
+const demoChk   = document.getElementById("demo");
+const logEl     = document.getElementById("log");
+const sheetStat = document.getElementById("sheetStat");
+
+const btnMute   = document.getElementById("btnMute");
+const volRange  = document.getElementById("volRange");
+
+const warningFab = document.getElementById('warningFab');
+const warnTextEl = document.getElementById('warnText');
+
+const CIRC = 2 * Math.PI * 70;
+const clamp = (v,min,max)=>Math.max(min,Math.min(max,v));
+const nowText = ()=>{ const d=new Date(); const p=n=>String(n).padStart(2,'0'); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
+function setRing(el, value, max){ const pct = clamp(value/max, 0, 1); el.style.strokeDasharray=String(CIRC.toFixed(2)); el.style.strokeDashoffset=String((CIRC*(1-pct)).toFixed(2)); }
+
+const css = getComputedStyle(document.documentElement);
+const COLORS = { ok:css.getPropertyValue('--ok').trim()||'#25d366', warn:css.getPropertyValue('--warn').trim()||'#f7b500', alert:css.getPropertyValue('--alert').trim()||'#ff3b3b' };
+function colorForBand(val, bands){ for(const b of bands){ if(val <= b.max) return b.color; } return bands.at(-1).color; }
+
+/* ===== Thresholds =====
+   Pressure ใหม่: <=69 OK, 70–89 WARN, >=90 ALERT
+   (Humidity/Temperature สีเดิม)
+*/
+const TH = {
+  GAS:  [
+  {max:99.999,  color:COLORS.ok},     // เขียว  0–100
+  {max:299.999, color:COLORS.warn},   // เหลือง 100–300
+  {max:800,     color:COLORS.alert}   // แดง   300–800
+],
+  PCT:  [{max:69.999, color:COLORS.ok}, {max:89.999, color:COLORS.warn}, {max:1000, color:COLORS.alert}],
+ HUM:[
+  {min:0, max:25,  color:COLORS.alert}, // แดง 0–25
+  {min:26, max:79, color:COLORS.ok},    // เขียว 26–79
+  {min:80, max:100,color:COLORS.alert}  // แดง 80–100
+],
+
+
+    TEMP: [
+    { max: 39.999, color: COLORS.ok },    // เขียว
+    { max: 45.999, color: COLORS.warn },  // เหลือง
+    { max: 1000,   color: COLORS.alert }  // แดง
+  ],
+};
+
+/* ปรับเส้นอ้างอิงของ PRESSURE ให้มี 70 และ 90 */
+const SPARK_CONFIG = {
+  GAS:{ymax:800,unitRight:'ppm',label:'GAS (ppm)',ticks:[0,200,400,600,800],bands:TH.GAS,tickColors:{200:COLORS.warn,400:COLORS.alert}},
+  PRESSURE:{ymax:100,unitRight:'%',label:'PRESSURE (%)',ticks:[0,50,70,90,100],bands:TH.PCT,tickColors:{70:COLORS.warn,90:COLORS.alert}},
+HUM:{
+  ymax:100,
+  unitRight:'%',
+  label:'HUMIDITY (%)',
+  ticks:[0,25,50,75,100],
+  bands:TH.HUM,
+  tickColors:{25:COLORS.alert,50:COLORS.ok,75:COLORS.ok,100:COLORS.alert}
+},
+
+
+  TEMP:{ymax:100,unitRight:'°C',label:'TEMPERATURE (°C)',ticks:[0,25,50,75,100],bands:TH.TEMP,tickColors:{50:COLORS.warn,75:COLORS.alert}}
+};
+
+function hexToRGBA(hex, a=1){ const h=hex.replace('#',''); const n=parseInt(h.length===3? h.split('').map(c=>c+c).join(''):h,16); const r=(n>>16)&255, g=(n>>8)&255, b=n&255; return `rgba(${r},${g},${b},${a})`; }
+function makeSpark(canvas, cfg){
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  // ปรับตำแหน่งกรอบให้ตรงพิกเซล (แก้เส้นปะเยื้องแนว)
+const gutterL = Math.round(58*dpr)+0.5,
+      gutterR = Math.round(16*dpr)+0.5,
+      gutterT = Math.round(8*dpr)+0.5,
+      gutterB = Math.round(12*dpr)+0.5;
+  const lineInsetX = 8*dpr;
+  let lastData = [];
+  function draw(data){
+    lastData = Array.isArray(data) ? data.slice() : [];
+    const wCss = canvas.clientWidth, hCss = canvas.clientHeight;
+    const w = canvas.width  = Math.max(1, Math.floor(wCss * dpr));
+    const h = canvas.height = Math.max(1, Math.floor(hCss * dpr));
+    ctx.clearRect(0,0,w,h);
+        ctx.translate(0.5, 0.5); // Align subpixel สำหรับ Hi-DPI
+
+    if(!lastData.length) return;
+    const plotW = Math.max(1, w - gutterL - gutterR);
+    const plotH = Math.max(1, h - gutterT - gutterB);
+    const x0 = gutterL + lineInsetX;
+    const x1 = gutterL + plotW - lineInsetX;
+    const y0 = gutterT;
+    const y1 = gutterT + plotH;
+   const yof = v => {
+  let vv = clamp(v, 0, cfg.ymax);
+
+  // ✅ ปรับเฉพาะ Pressure ให้แต่ละช่วงห่างเท่ากันทางสายตา
+  if (cfg.label.startsWith('PRESSURE')) {
+    // 0–50, 50–70, 70–90, 90–100 → แต่ละช่วงคิดเป็น 25% ของความสูงกราฟ
+    if (vv <= 50) vv = vv * 0.25 / 50;              // 0–50 → 0–0.25
+    else if (vv <= 70) vv = 0.25 + (vv - 50) * 0.25 / 20; // 50–70 → 0.25–0.50
+    else if (vv <= 90) vv = 0.50 + (vv - 70) * 0.25 / 20; // 70–90 → 0.50–0.75
+    else vv = 0.75 + (vv - 90) * 0.25 / 10;         // 90–100 → 0.75–1.00
+    vv *= 100; // ปรับกลับให้สเกล 0–100%
+  }
+
+  const yy = y1 - (vv / cfg.ymax) * plotH;
+  return Math.min(y1 - 0.5, Math.max(y0 + 0.5, Math.round(yy) + 0.5));
+};
+
+    const n = lastData.length;
+    const dx = (x1 - x0) / Math.max(1, n-1);
+
+    // ===== Draw Y reference dashed lines (fixed precision & positioning) =====
+          ctx.save();
+     ctx.lineCap = 'round';
+     ctx.setLineDash([4 * dpr, 3 * dpr]);
+     ctx.lineWidth = 1.3 * dpr;
+     ctx.font = `${10 * dpr}px ui-monospace,Consolas,monospace`;
+     ctx.textAlign = 'right';
+     ctx.textBaseline = 'middle';
+     const labelX = gutterL - 2 * dpr;
+
+      for (const val of cfg.ticks) {
+  if (val < 0 || val > cfg.ymax) continue;
+  const y = yof(val);  // ✅ ใช้ฟังก์ชัน yof() ที่เราปรับช่วงไว้แล้ว
+
+    const c = (cfg.tickColors && cfg.tickColors[val]) ? cfg.tickColors[val] : colorForBand(val, cfg.bands);
+    ctx.strokeStyle = hexToRGBA(c, 0.9);
+    ctx.beginPath();
+    ctx.moveTo(x0, y);
+    ctx.lineTo(x1, y);
+    ctx.stroke();
+
+     // ปรับสีตัวอักษรตาม theme
+    ctx.fillStyle = (document.documentElement.getAttribute('data-theme') === 'dark')
+    ? 'rgba(255,255,255,.9)'
+    : 'rgba(0,0,0,.9)';
+     ctx.fillText(String(val), labelX, y);
+       }
+        ctx.restore();
+
+
+    ctx.save();
+    ctx.beginPath(); ctx.rect(x0, y0, (x1-x0), (y1-y0)); ctx.clip();
+
+    const lastVal = lastData[n-1];
+    const baseColor = colorForBand(lastVal, cfg.bands);
+    const grad = ctx.createLinearGradient(0,y0,0,y1);
+    grad.addColorStop(0, hexToRGBA(baseColor, .28));
+    grad.addColorStop(1, hexToRGBA(baseColor, 0));
+
+    ctx.beginPath();
+    for(let i=0;i<n;i++){
+      const x = x0 + i*dx;
+      const y = yof(lastData[i]);
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.lineTo(x1, y1); ctx.lineTo(x0, y1); ctx.closePath();
+    ctx.fillStyle = grad; ctx.fill();
+
+    ctx.lineWidth = 2.4*dpr; ctx.lineJoin='round'; ctx.lineCap='round';
+    for(let i=0;i<n-1;i++){
+      const v1=lastData[i], v2=lastData[i+1];
+      const mid=(v1+v2)/2;
+      const c = colorForBand(mid, cfg.bands);
+      ctx.strokeStyle = c; ctx.shadowColor = hexToRGBA(c,.40); ctx.shadowBlur = 8*dpr;
+      ctx.beginPath();
+      ctx.moveTo(x0 + i*dx,     yof(v1));
+      ctx.lineTo(x0 + (i+1)*dx, yof(v2));
+      ctx.stroke();
+    }
+    ctx.shadowBlur=0; ctx.shadowColor='transparent';
+
+    const xl = x0 + (n-1)*dx, yl = yof(lastVal);
+    ctx.fillStyle = baseColor; ctx.beginPath(); ctx.arc(xl,yl,3.2*dpr,0,Math.PI*2); ctx.fill();
+
+    ctx.restore();
+  }
+  const api = { draw, redraw: ()=>draw(lastData.slice()) };
+  return api;
+}
+
+/* ===== (สำคัญ) เพิ่มฟังก์ชัน pushHist ที่หายไป ทำให้โหมดสาธิต/รับข้อมูลทำงานได้ ===== */
+function pushHist(arr, v, maxLen=60){
+  if(!Array.isArray(arr)) return;
+  arr.push(v);
+  if(arr.length > maxLen) arr.shift();
+}
+
+function makeNode(prefix){
+  const get = id=>document.getElementById(`${prefix}_${id}`);
+  return {
+    G:0, P:null, H:null, T:null,
+    connected: { G:false, P:false, H:false, T:false },
+    hist: { G:[], P:[], H:[], T:[] },
+    els: {
+      gasVal:  get('gasVal'),   gasProg: get('gasProg'),   gasDots: get('gasDots'),
+      gasTime: get('gasTime'),  gasBadge:get('gasBadge'),
+      pVal:    get('pressureVal'), pProg: get('pressureProg'), pDots:get('pressureDots'), pTime:get('pressureTime'),
+      hVal:    get('humVal'),   hProg: get('humProg'),     hDots:get('humDots'),         hTime:get('humTime'),
+      tVal:    get('tempVal'),  tProg: get('tempProg'),    tDots:get('tempDots'),        tTime:get('tempTime'),
+      sG: makeSpark(get('gasSpark'),      SPARK_CONFIG.GAS),
+      sP: makeSpark(get('pressureSpark'), SPARK_CONFIG.PRESSURE),
+      sH: makeSpark(get('humSpark'),      SPARK_CONFIG.HUM),
+      sT: makeSpark(get('tempSpark'),     SPARK_CONFIG.TEMP),
+      noteG: get('gasNote'), noteP: get('pressureNote'), noteH: get('humNote'), noteT: get('tempNote')
+    }
+  };
+}
+const N1 = makeNode('n1');
+const N2 = makeNode('n2');
+
+/* ===== ระบบเสียงใหม่ (Web Audio) — ใช้โหมดเดิม: off/single/medium/rapid/hold ===== */
+let audioCtx=null, masterGain=null, mute=false, beepTimer=null, holdOsc=null, holdGain=null, beepMode='off';
+
+function ensureAudio(){
+  if(!audioCtx){
+    const AC = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new AC();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 1;
+    masterGain.connect(audioCtx.destination);
+  } else if(audioCtx.state === 'suspended'){
+    audioCtx.resume();
+  }
+}
+
+function clearBeepTimer(){ if(beepTimer){ clearInterval(beepTimer); beepTimer=null; } }
+function stopHold(){
+  if(holdOsc && holdGain){
+    const t = audioCtx.currentTime;
+    holdGain.gain.exponentialRampToValueAtTime(0.0001, t+0.05);
+    holdOsc.stop(t+0.06);
+  }
+  holdOsc=null; holdGain=null;
+}
+
+function shortBeep(freq=1000){
+  if(mute) return;
+  ensureAudio();
+  const now = audioCtx.currentTime;
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type='sine'; o.frequency.value=freq;
+  g.gain.setValueAtTime(0.0001, now);
+  g.gain.exponentialRampToValueAtTime(0.20, now+0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, now+0.22);
+  o.connect(g).connect(masterGain);
+  o.start(now); o.stop(now+0.24);
+}
+
+function startHold(freq=1000){
+  if(mute || holdOsc) return;
+  ensureAudio();
+  const o = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  o.type='sine'; o.frequency.value=freq;
+  g.gain.setValueAtTime(0.0001, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.20, audioCtx.currentTime+0.05);
+  o.connect(g).connect(masterGain);
+  o.start();
+  holdOsc=o; holdGain=g;
+}
+
+/* แทนที่ setBeepMode เดิม ด้วยเอนจินใหม่นี้ (ชื่อเดิม เพื่อไม่กระทบโค้ดส่วนอื่น) */
+function setBeepMode(mode){
+  if(mode === beepMode) return;
+  beepMode = mode;
+
+  clearBeepTimer();
+  stopHold();
+
+  if(mute || mode==='off') return;
+
+  // map โหมดเดิม -> รูปแบบเสียง
+  if(mode==='single'){
+    shortBeep();
+    return;
+  }
+  if(mode==='medium'){
+    shortBeep();
+    beepTimer = setInterval(()=>shortBeep(), 600);
+    return;
+  }
+  if(mode==='rapid'){
+    shortBeep();
+    beepTimer = setInterval(()=>shortBeep(), 200);
+    return;
+  }
+  if(mode==='hold'){
+    startHold();
+    return;
+  }
+}
+
+/* โหลด/บันทึก mute & volume (คีย์เดิม) */
+try{
+  const savedVol = parseFloat(localStorage.getItem('pipegas-volume')||'');
+  if(!Number.isNaN(savedVol)) { volRange.value = clamp(savedVol,0,1); ensureAudio(); masterGain && (masterGain.gain.value = clamp(savedVol,0,1)); }
+  const savedMute = localStorage.getItem('pipegas-muted');
+  if(savedMute === '1'){ mute = true; btnMute.setAttribute('aria-pressed','true'); btnMute.textContent='🔇 เสียง: ปิด'; }
+}catch{}
+
+/* ปุ่มควบคุมเสียง (เดิม) -> ผูกกับ Web Audio */
+btnMute.addEventListener('click', ()=>{
+  mute = !mute;
+  btnMute.setAttribute('aria-pressed', String(mute));
+  btnMute.textContent = mute ? '🔇 เสียง: ปิด' : '🔊 เสียง: เปิด';
+  try{ localStorage.setItem('pipegas-muted', mute ? '1':'0'); }catch{}
+  if(mute){ clearBeepTimer(); stopHold(); }
+});
+
+volRange.addEventListener('input', e=>{
+  const v = parseFloat(e.target.value||'1');
+  ensureAudio();
+  if(masterGain) masterGain.gain.value = clamp(v,0,1);
+  try{ localStorage.setItem('pipegas-volume', String(clamp(v,0,1))); }catch{}
+});
+
+/* ===== ตรรกะเลือกรูปแบบเสียง: คงแบบเดิมตามค่า 2 โหนด ===== */
+function decideBeepModeForNode(n){
+  // ==== GAS =====
+  if(n.connected?.G){
+    if(n.G >= 400) return 'hold';    // 🚨 ไซเรน
+    if(n.G >= 200) return 'rapid';   // 🔔 บี๊บรัว
+    if(n.G >= 100) return 'medium';  // 🔔 บี๊บทุก 1 วิ
+    return 'off';                    // 🔇 ไม่มีเสียง
+  }
+
+  // ==== PRESSURE =====
+  if(n.connected?.P && n.P != null){
+    if(n.P >= 90) return 'hold';     // 🚨 ไซเรน
+    if(n.P >= 80) return 'medium';   // 🔔 บี๊บทุก 1 วิ
+    return 'off';                    // 🔇 ไม่มีเสียง
+  }
+
+  // ==== TEMPERATURE =====
+  if(n.connected?.T && n.T != null){
+    if(n.T >= 50) return 'hold';     // 🚨 ไซเรน
+    if(n.T >= 40) return 'rapid';    // 🔔 บี๊บรัว
+    return 'off';                    // 🔇 ไม่มีเสียง
+  }
+
+  return 'off';
+}
+
+
+function maybeBeep(){
+  const rank = {off:0, single:1, medium:2, rapid:3, hold:4};
+  const m1 = decideBeepModeForNode(N1);
+  const m2 = decideBeepModeForNode(N2);
+  const mode = (rank[m1] >= rank[m2]) ? m1 : m2;
+
+  // ถ้าค่าแรงมากๆ (เช่น GAS >= 400) ให้ยกระดับเป็น hold
+  const severe =
+    (N1.connected.G && N1.G>=400) || (N2.connected.G && N2.G>=400) ||
+    ((N1.connected.P && N1.P>=95) || (N2.connected.P && N2.P>=95)) ||
+    ((N1.connected.T && N1.T>=65) || (N2.connected.T && N2.T>=65));
+  setBeepMode(severe ? 'hold' : mode);
+}
+
+/* ===== ป้ายเตือน FAB (เดิม) ===== */
+function setWarningVisible(on){
+  if(on){ warningFab.classList.add('show'); warningFab.setAttribute('aria-hidden','false'); }
+  else{ warningFab.classList.remove('show'); warningFab.setAttribute('aria-hidden','true'); }
+}
+function buildNodeLine(n, label){
+  const parts = [];
+  if(n.connected.G && n.G > 100) parts.push(`GAS = ${Math.round(n.G)}`);
+  if(n.connected.P && n.P >= 70) parts.push(`PRESSURE = ${Math.round(n.P)}`);
+  if(n.connected.T && n.T >= 40) parts.push(`TEMP = ${Math.round(n.T)}`);
+  if(parts.length === 0) return '';
+  return parts.join(' , ') + ` — ${label}`;
+}
+function updateWarningFab(){
+  const line1 = buildNodeLine(N1, 'N1');
+  const line2 = buildNodeLine(N2, 'N2');
+  const visible = Boolean(line1 || line2);
+  setWarningVisible(visible);
+
+  const anyAlert =
+    (N1.connected.G && N1.G>=400) || (N2.connected.G && N2.G>=400) ||
+    ((N1.connected.P && N1.P>=90) || (N2.connected.P && N2.P>=90)) ||
+    ((N1.connected.T && N1.T>=60) || (N2.connected.T && N2.T>=60));
+
+  warningFab.classList.remove('warn','alert');
+  if(visible){ warningFab.classList.add(anyAlert ? 'alert' : 'warn'); }
+
+  if(visible){
+    const text = [line1, line2].filter(Boolean).join('  |  ');
+    warnTextEl.textContent = text;
+    warnTextEl.style.display = 'inline-flex';
+    warningFab.setAttribute('aria-label', `Warning: ${text}`);
+
+    // ===== LINE แจ้งเตือนเมื่อเกินเกณฑ์ =====
+    let alertMsg = `🚨 PipeGas Alert!\n`;
+    if (line1) alertMsg += `Node 1: ${line1}\n`;
+    if (line2) alertMsg += `Node 2: ${line2}\n`;
+    alertMsg += `🕒 ${new Date().toLocaleString('th-TH')}`;
+    sendLineAlert(alertMsg);
+  } else {
+    warnTextEl.style.display = 'none';
+  }
+}
+
+
+function renderMetric(connected, value, max, els, band, noteEl, spark, label){
+  const mutedC = 'rgba(255,255,255,.25)';
+  if(!connected){
+    els.val.textContent = 'NC';
+    setRing(els.prog, 0, 1);
+    els.prog.style.stroke = mutedC;
+    els.dots.style.stroke = mutedC;
+    els.prog.classList.remove('glow');
+    if (els.badge) els.badge.style.display='none';
+    if (els.time)  els.time.textContent = 'อัปเดต: —';
+    if (noteEl) noteEl.textContent = `${label} — 0 จุดล่าสุด`;
+    if (spark) spark.draw([]);
+    return;
+  }
+  const color = colorForBand(value||0, band);
+  els.val.textContent = (max===100 ? (value??0).toFixed(1) : Math.round(value??0));
+  setRing(els.prog, clamp(value||0,0,max), max);
+  els.prog.style.stroke = color;
+  els.dots.style.stroke = color;
+  if (els.badge) els.badge.style.display = (value >= 400 && label.startsWith('GAS')) ? 'inline-block' : 'none';
+  if (els.time) els.time.textContent = 'อัปเดต: ' + nowText();
+}
+
+function renderNode(n){
+  renderMetric(n.connected.G, n.G, 800, { val:n.els.gasVal, prog:n.els.gasProg, dots:n.els.gasDots, time:n.els.gasTime, badge:n.els.gasBadge }, TH.GAS, n.els.noteG, n.els.sG, SPARK_CONFIG.GAS.label);
+  if(n.connected.G) { n.els.sG.draw(n.hist.G); n.els.noteG.textContent = `${SPARK_CONFIG.GAS.label} — ${n.hist.G.length} จุดล่าสุด`; }
+
+  renderMetric(n.connected.P, n.P, 100, { val:n.els.pVal, prog:n.els.pProg, dots:n.els.pDots, time:n.els.pTime }, TH.PCT, n.els.noteP, n.els.sP, SPARK_CONFIG.PRESSURE.label);
+  if(n.connected.P){ n.els.sP.draw(n.hist.P); n.els.noteP.textContent = `${SPARK_CONFIG.PRESSURE.label} — ${n.hist.P.length} จุดล่าสุด`; }
+
+  renderMetric(n.connected.H, n.H, 100, { val:n.els.hVal, prog:n.els.hProg, dots:n.els.hDots, time:n.els.hTime }, TH.HUM, n.els.noteH, n.els.sH, SPARK_CONFIG.HUM.label);
+  if(n.connected.H){ n.els.sH.draw(n.hist.H); n.els.noteH.textContent = `${SPARK_CONFIG.HUM.label} — ${n.hist.H.length} จุดล่าสุด`; }
+
+  renderMetric(n.connected.T, n.T, 100, { val:n.els.tVal, prog:n.els.tProg, dots:n.els.tDots, time:n.els.tTime }, TH.TEMP, n.els.noteT, n.els.sT, SPARK_CONFIG.TEMP.label);
+  if(n.connected.T){ n.els.sT.draw(n.hist.T); n.els.noteT.textContent = `${SPARK_CONFIG.TEMP.label} — ${n.hist.T.length} จุดล่าสุด`; }
+
+  maybeBeep();
+  updateWarningFab();
+}
+
+function handleLine(s){
+  logEl.textContent += s + '\n';
+  logEl.scrollTop = logEl.scrollHeight;
+  if (!s.startsWith('N=')) return;
+
+  const parts = s.split(',');
+  const node = (parts[0].split('=')[1] || '').trim();
+  const kv = {};
+  for (const p of parts.slice(1)){
+    const [k,v] = p.split('=');
+    if (!k) continue;
+    const num = parseFloat(v);
+    kv[k] = Number.isFinite(num) ? num : null;
+  }
+  const target = node==='1' ? N1 : node==='2' ? N2 : null;
+  if (!target) return;
+
+  if (kv.G != null){ target.G = kv.G; target.connected.G = true; pushHist(target.hist.G, kv.G); }
+  if (kv.P != null){ target.P = kv.P; target.connected.P = true; pushHist(target.hist.P, kv.P); }
+  if (kv.H != null){ target.H = kv.H; target.connected.H = true; pushHist(target.hist.H, kv.H); }
+  if (kv.T != null){ target.T = kv.T; target.connected.T = true; pushHist(target.hist.T, kv.T); }
+
+  renderNode(target);
+}
+
+let port=null, reader=null, keep=false, decoder=null, buffer='';
+async function connectSerial(){
+  if (!('serial' in navigator)){
+    alert('เบราว์เซอร์นี้ไม่รองรับ Web Serial\nแนะนำใช้ Google Chrome / Microsoft Edge ล่าสุด');
+    return;
+  }
+  try{
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+    decoder = new TextDecoderStream();
+    port.readable.pipeTo(decoder.writable);
+    reader = decoder.readable.getReader();
+    keep = true; buffer='';
+    statusEl.textContent = 'เชื่อมต่อแล้ว • กำลังอ่านข้อมูล...';
+    btnSerial.textContent = '🔌 ตัดการเชื่อมต่อ';
+    readLoop();
+  }catch(err){
+    console.error(err);
+    statusEl.textContent = 'เชื่อมต่อไม่สำเร็จ: ' + (err?.message || err);
+    await disconnectSerial(true);
+  }
+}
+async function disconnectSerial(silent){
+  try{
+    keep = false;
+    if (reader){ try{ await reader.cancel(); }catch(_){} reader.releaseLock(); }
+    if (port){ try{ await port.close(); }catch(_){} }
+  }finally{
+    reader = null; port = null;
+    if (!silent){ statusEl.textContent = 'ตัดการเชื่อมต่อแล้ว'; }
+    btnSerial.textContent = '🔌 เชื่อมต่อ Serial';
+    setAllDisconnected();
+  }
+}
+async function readLoop(){
+  while (keep){
+    const { value, done } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    buffer += value;
+    let i;
+    while ((i = buffer.search(/[\r\n]/)) >= 0){
+      const line = buffer.slice(0, i).trim();
+      buffer = buffer.slice(i+1);
+      if (line) handleLine(line);
+    }
+  }
+}
+
+let demoTimer=null;
+function startDemo(){
+  stopDemo();
+  statusEl.textContent = 'โหมดสาธิตทำงาน';
+  let g1=90, g2=120, d1=+1, d2=+1;
+  demoTimer = setInterval(()=>{
+    g1 += d1*(Math.random()*18-9);
+    g2 += d2*(Math.random()*20-10);
+    if(g1<40||g1>760) d1*=-1;
+    if(g2<60||g2>780) d2*=-1;
+    const mk = (n,g)=>`N=${n},G=${clamp(Math.round(g),0,800)},T=${(28+Math.random()*3).toFixed(1)},H=${(55+Math.random()*12).toFixed(0)},P=${(35+Math.random()*25).toFixed(1)}`;
+    handleLine(mk(1,g1)); handleLine(mk(2,g2));
+  }, 1000);
+}
+function stopDemo(){ if(demoTimer){ clearInterval(demoTimer); demoTimer=null; } }
+
+function setAllDisconnected(){
+  [N1,N2].forEach(n=>{
+    n.connected = { G:false, P:false, H:false, T:false };
+    n.G = 0; n.P = n.H = n.T = null;
+    n.hist.G=[]; n.hist.P=[]; n.hist.H=[]; n.hist.T=[];
+    renderNode(n);
+  });
+  setBeepMode('off');
+}
+
+btnSerial.addEventListener('click', ()=>{ if (port){ disconnectSerial(); return; } if (demoChk.checked){ alert('กรุณาปิด "โหมดสาธิต" ก่อนเชื่อมต่ออุปกรณ์จริง'); return; } connectSerial(); });
+btnClear.addEventListener('click', ()=>{
+  logEl.textContent = '';
+  setAllDisconnected();
+  queue = []; saveQueue(); sheetStat.textContent = 'Sheet: idle';
+  statusEl.textContent = 'ล้างค่าแล้ว';
+});
+
+/* ===== ทำให้โหมดสาธิตกดได้ + จดจำสถานะ ===== */
+(function(){
+  try{
+    const savedDemo = localStorage.getItem('pipegas-demo');
+    if(savedDemo === '1'){
+      demoChk.checked = true;
+      startDemo();
+    }
+  }catch{}
+  demoChk.addEventListener('change', e=>{
+    const on = e.target.checked;
+    try{ localStorage.setItem('pipegas-demo', on ? '1':'0'); }catch{}
+    if(on){
+      if (port) disconnectSerial(true);
+      startDemo();
+    } else {
+      stopDemo();
+      statusEl.textContent='พร้อม';
+      setAllDisconnected();
+    }
+  });
+})();
+
+/* ===== Queue & Sheet (เดิม) ===== */
+const LS_KEY = 'sheet_queue_log';
+let queue = [];
+function loadQueue(){ try{ queue = JSON.parse(localStorage.getItem(LS_KEY)||'[]'); }catch{ queue=[]; } }
+function saveQueue(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(queue)); }catch{} }
+
+function snapshotRecords(){
+  const ts = Date.now();
+  return [
+    { ts, node: 1, G: N1.G ?? '', P: N1.P ?? '', H: N1.H ?? '', T: N1.T ?? '', raw:'' },
+    { ts, node: 2, G: N2.G ?? '', P: N2.P ?? '', H: N2.H ?? '', T: N2.T ?? '', raw:'' }
+  ];
+}
+function enqueueSnapshot(){ const recs = snapshotRecords(); queue.push(...recs); saveQueue(); sheetStat.textContent = `Sheet: queued ${queue.length}`; }
+
+let sending = false;
+async function flushQueue(url = APP_SCRIPT_URL_1MIN){
+  if (sending) return;
+  if (!queue.length) { sheetStat.textContent = 'Sheet: idle'; return; }
+  sending = true;
+  try{
+    const batch = queue.slice(0,200);
+    await fetch(url, {
+      method:'POST',
+      mode:'no-cors',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: JSON.stringify({ records: batch })
+    });
+    queue.splice(0, batch.length);
+    saveQueue();
+    sheetStat.textContent = `Sheet: saved +${batch.length} (left ${queue.length})`;
+  }catch(err){
+    console.error('Send to sheet failed:', err);
+    sheetStat.textContent = `Sheet: retry later (${queue.length} pending)`;
+  }finally{ sending=false; }
+}
+
+loadQueue();
+setInterval(()=>{ enqueueSnapshot(); flushQueue(); }, 60_000);
+setInterval(()=>{ flushQueue(); }, 10_000);
+// บันทึกลงชีตหลัก (ทุก 1 นาที)
+setInterval(()=>{ enqueueSnapshot(); flushQueue(APP_SCRIPT_URL_1MIN); }, 60_000);
+
+// บันทึกลงชีตใหม่ (ทุก 1 วินาที)
+setInterval(()=>{ enqueueSnapshot(); flushQueue(APP_SCRIPT_URL_1SEC); }, 1_000);
+
+// สำรองส่งซ้ำทุก 10 วิ
+setInterval(()=>{ flushQueue(APP_SCRIPT_URL_1MIN); flushQueue(APP_SCRIPT_URL_1SEC); }, 10_000);
+
+
+/* ===== จัดการ resize: วาด sparkline ซ้ำเพื่อขนาดคมชัด ===== */
+function redrawAllSparks(){
+  N1.els.sG.redraw(); N1.els.sP.redraw(); N1.els.sH.redraw(); N1.els.sT.redraw();
+  N2.els.sG.redraw(); N2.els.sP.redraw(); N2.els.sH.redraw(); N2.els.sT.redraw();
+}
+let resizeTO=null;
+window.addEventListener('resize', ()=>{
+  clearTimeout(resizeTO);
+  resizeTO = setTimeout(redrawAllSparks, 120);
+});
+
+renderNode(N1); renderNode(N2);
+
+/* ป้องกันเสียง/interval ค้างขณะออกจากหน้า */
+window.addEventListener('beforeunload', ()=>{ stopDemo(); setBeepMode('off'); });
+</script>
+
+<!-- ===== Skin picker JS (ย้ายมาท้ายสุด) ===== -->
+<script>
+  (function(){
+    const btn  = document.getElementById('skinBtn');
+    const menu = document.getElementById('skinMenu');
+    if(!btn || !menu) return;
+    const setSkin = (name)=>{
+      document.documentElement.setAttribute('data-skin', name);
+      try{ localStorage.setItem('pipegas-skin', name); }catch{}
+      menu.classList.remove('show'); btn.setAttribute('aria-expanded','false');
+    };
+    btn.addEventListener('click', ()=>{
+      const open = !menu.classList.contains('show');
+      menu.classList.toggle('show', open);
+      btn.setAttribute('aria-expanded', String(open));
+    });
+    document.addEventListener('click', (e)=>{
+      if(!menu.contains(e.target) && e.target!==btn){
+        menu.classList.remove('show'); btn.setAttribute('aria-expanded','false');
+      }
+    });
+    menu.addEventListener('click', (e)=>{
+      const it = e.target.closest('.skin-item');
+      if(!it) return;
+      setSkin(it.dataset.skin);
+      [...menu.querySelectorAll('.skin-item')].forEach(el=>el.style.outline='');
+      it.style.outline='2px solid #22d3ee';
+    });
+  })();
+</script>
+<!-- ===== Firebase Realtime Mode (Online Backup) ===== -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.5.0/firebase-app.js";
+import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/12.5.0/firebase-database.js";
+
+/* ===== ตั้งค่า Firebase (เหมือนใน Python) ===== */
+const firebaseConfig = {
+  apiKey: "AIzaSyCUMn7sWNdhsPOPvY56Mm3LfcJPB-t-UMo",
+  authDomain: "pipegas1-2fb58.firebaseapp.com",
+  databaseURL: "https://pipegas1-2fb58-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "pipegas1-2fb58",
+  storageBucket: "pipegas1-2fb58.firebasestorage.app",
+  messagingSenderId: "497678087867",
+  appId: "1:497678087867:web:e9c7fc03bca1a611495b9e"
+};
+
+/* ===== เริ่มต้น Firebase ===== */
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+/* ===== ดึงข้อมูลจาก Firebase (Realtime) ===== */
+function updateNodeFromFirebase(node, data) {
+  const t = node === 1 ? N1 : N2;
+  if (!data) return;
+  if (data.Gas != null) { t.G = data.Gas; t.connected.G = true; pushHist(t.hist.G, data.Gas); }
+  if (data.Pressure != null) { t.P = data.Pressure; t.connected.P = true; pushHist(t.hist.P, data.Pressure); }
+  if (data.Humidity != null) { t.H = data.Humidity; t.connected.H = true; pushHist(t.hist.H, data.Humidity); }
+  if (data.Temp != null) { t.T = data.Temp; t.connected.T = true; pushHist(t.hist.T, data.Temp); }
+  renderNode(t);
+}
+
+/* ===== รับค่าจาก Node1 / Node2 ===== */
+onValue(ref(db, "Node1"), (snap) => {
+  const val = snap.val();
+  if (val) updateNodeFromFirebase(1, val);
+});
+onValue(ref(db, "Node2"), (snap) => {
+  const val = snap.val();
+  if (val) updateNodeFromFirebase(2, val);
+});
+
+console.log("✅ Firebase Connected");
+document.getElementById("status").textContent = "เชื่อมต่อ Firebase (ออนไลน์)";
+</script>
+
+</body>
+</html>
